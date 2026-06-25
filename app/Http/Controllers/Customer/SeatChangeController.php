@@ -33,10 +33,18 @@ class SeatChangeController extends Controller
     {
         $user = auth()->user()->load(['branch', 'room', 'seat']);
 
+        if (!$user->seat_id) {
+            return redirect()
+                ->route('customer.bookings.index')
+                ->with('error', 'You do not have a booked seat yet. Please book a seat first.');
+        }
+
         $branches = Branch::orderBy('name')->get();
 
-        $availableSeats = Seat::with('room.branch')
+        $availableSeats = Seat::with(['room.branch'])
             ->where('status', 'available')
+            ->where('id', '!=', $user->seat_id)
+            ->orderBy('room_id')
             ->orderBy('seat_number')
             ->get();
 
@@ -53,25 +61,41 @@ class SeatChangeController extends Controller
 
         $user = auth()->user()->load(['branch', 'room', 'seat']);
 
-        $requestedSeat = Seat::with('room.branch')->findOrFail($request->requested_seat_id);
+        if (!$user->seat_id) {
+            return redirect()
+                ->route('customer.bookings.index')
+                ->with('error', 'You do not have a booked seat yet. Please book a seat first.');
+        }
+
+        $requestedSeat = Seat::with(['room.branch'])->findOrFail($request->requested_seat_id);
 
         if ($requestedSeat->status !== 'available') {
-            return back()->with('error', 'This seat is not available.');
+            return back()
+                ->withInput()
+                ->with('error', 'This seat is not available.');
         }
 
         if ($user->seat_id == $requestedSeat->id) {
-            return back()->with('error', 'You are already assigned to this seat.');
+            return back()
+                ->withInput()
+                ->with('error', 'You are already assigned to this seat.');
+        }
+
+        if (!$requestedSeat->room || !$requestedSeat->room->branch) {
+            return back()
+                ->withInput()
+                ->with('error', 'Selected seat does not have valid room or branch information.');
         }
 
         $remainingDays = (int) $request->remaining_days;
 
         /*
-            Important:
-            Here rent_amount is treated as daily rent.
+            Business rule:
+            rent_amount is treated as daily rent.
             Example:
-            Old seat: 1000 TK per day
-            New seat: 800 TK per day
-            Remaining days: 4
+            Current seat daily rent = 12000
+            New seat daily rent = 8000
+            Remaining days = 1
         */
         $currentDailyRent = $user->room ? $user->room->rent_amount : 0;
         $newDailyRent = $requestedSeat->room ? $requestedSeat->room->rent_amount : 0;
@@ -90,23 +114,24 @@ class SeatChangeController extends Controller
             /*
                 New seat is more expensive.
                 Customer must pay extra.
-                Minimum payable rule:
-                If payable amount is less than 100 TK, customer still pays 100 TK.
+                If payable amount is less than 100 BDT, minimum payable is 100 BDT.
             */
             $minimumPayable = $paymentDifference < 100 ? 100 : $paymentDifference;
 
-            $adjustmentNote = 'New seat is more expensive. Customer must pay ' . number_format($minimumPayable, 2) . ' TK. No refund policy applied.';
+            $adjustmentNote = 'New seat is more expensive. Customer must pay ' . number_format($minimumPayable, 2) . ' BDT. No refund policy applied.';
         } elseif ($paymentDifference < 0) {
             /*
                 New seat is cheaper.
                 No refund.
-                Extra money converts into extra days.
+                Extra balance converts into extra days.
             */
             $unusedCredit = abs($paymentDifference);
 
             if ($newDailyRent > 0) {
                 $extraDays = floor($unusedCredit / $newDailyRent);
+
                 $remainingCreditAfterExtraDays = $unusedCredit - ($extraDays * $newDailyRent);
+
                 $shortForNextDay = $newDailyRent - $remainingCreditAfterExtraDays;
 
                 if ($extraDays == 0 && $shortForNextDay <= 100) {
@@ -119,7 +144,7 @@ class SeatChangeController extends Controller
             }
 
             if ($extraDays > 0 && $minimumPayable > 0) {
-                $adjustmentNote = 'New seat is cheaper. No refund will be given. Extra balance converts to ' . $extraDays . ' extra day(s). Customer must pay additional ' . number_format($minimumPayable, 2) . ' TK to complete the extra day.';
+                $adjustmentNote = 'New seat is cheaper. No refund will be given. Extra balance converts to ' . $extraDays . ' extra day(s). Customer must pay additional ' . number_format($minimumPayable, 2) . ' BDT to complete the extra day.';
             } elseif ($extraDays > 0) {
                 $adjustmentNote = 'New seat is cheaper. No refund will be given. Extra balance converts to ' . $extraDays . ' extra day(s).';
             } else {

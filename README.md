@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Younic Home - Dynamic Mini Hostel Management System
 
 Younic Home is a dynamic Laravel-based hostel management system designed for customer-side hostel operations with an admin panel. The system allows customers to register, book seats, request seat changes, pay rent, apply for leave, request hostel exit, and receive notifications. Admin can manage branches, rooms, seats, bookings, payments, leave requests, exit requests, and announcements.
@@ -91,3 +92,6 @@ Default admin login:
 ```text
 Email: admin@younic.com
 Password: password
+=======
+# hostel_management_system
+>>>>>>> c548726dc5a48921bbb55c9e07825bbdd6e6d334
